@@ -20,6 +20,8 @@ import {
   Sun,
   Moon,
   ArrowDownToLine,
+  PieChart,
+  Shield,
 } from "lucide-react"
 import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -33,12 +35,14 @@ export function DashboardNav() {
 
   const navItems = [
     { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+    { href: "/dashboard/investments", label: "Investments", icon: PieChart },
     { href: "/dashboard/trade", label: "Trade", icon: TrendingUp },
     { href: "/dashboard/portfolio", label: "Portfolio", icon: BarChart3 },
     { href: "/dashboard/deposits", label: "Deposits", icon: Wallet },
     { href: "/dashboard/withdrawals", label: "Withdrawals", icon: ArrowDownToLine },
     { href: "/dashboard/copy-trading", label: "Copy Trading", icon: Users },
     { href: "/dashboard/signals", label: "Signals", icon: Radio },
+    { href: "/dashboard/kyc", label: "Verification", icon: Shield },
     { href: "/dashboard/settings", label: "Settings", icon: Settings },
   ]
 

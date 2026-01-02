@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/lib/theme-provider"
+import { SmartSuppChat } from "@/components/smartsupp-chat"
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
@@ -12,23 +13,6 @@ export const metadata: Metadata = {
   title: "StellaOne Capitals - Global Investment & Trading Platform",
   description:
     "Trade smarter, invest better. Access global markets with institutional-grade tools, copy trading, and premium signals."
-  // icons: {
-  //   icon: [
-  //     {
-  //       url: "/icon-light-32x32.png",
-  //       media: "(prefers-color-scheme: light)",
-  //     },
-  //     {
-  //       url: "/icon-dark-32x32.png",
-  //       media: "(prefers-color-scheme: dark)",
-  //     },
-  //     {
-  //       url: "/icon.svg",
-  //       type: "image/svg+xml",
-  //     },
-  //   ],
-  //   apple: "/apple-icon.png",
-  // },
 }
 
 export default function RootLayout({
@@ -42,6 +26,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
           <Analytics />
+          <SmartSuppChat />
         </ThemeProvider>
       </body>
     </html>
