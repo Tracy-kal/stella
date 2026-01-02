@@ -1,5 +1,5 @@
 -- ==========================================================
--- STORAGE BUCKETS AND RLS POLICIES
+-- STORAGE BUCKETS AND RLS POLICIES - FIXED VERSION
 -- Run this in Supabase SQL Editor
 -- ==========================================================
 
@@ -17,11 +17,6 @@ ON CONFLICT (id) DO NOTHING;
 -- RLS POLICIES FOR DEPOSIT PROOFS BUCKET
 -- ==========================================================
 
--- Drop existing policies if they exist (ignore errors)
-DROP POLICY IF EXISTS "Users can upload deposit proofs" ON storage.objects;
-DROP POLICY IF EXISTS "Anyone can view deposit proofs" ON storage.objects;
-DROP POLICY IF EXISTS "Admins can delete deposit proofs" ON storage.objects;
-
 -- Allow authenticated users to upload to deposit-proofs bucket
 CREATE POLICY "Users can upload deposit proofs"
 ON storage.objects FOR INSERT
@@ -34,23 +29,9 @@ ON storage.objects FOR SELECT
 TO public
 USING (bucket_id = 'deposit-proofs');
 
--- Allow admins to delete deposit proofs
-CREATE POLICY "Admins can delete deposit proofs"
-ON storage.objects FOR DELETE
-TO authenticated
-USING (
-    bucket_id = 'deposit-proofs' AND
-    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
-);
-
 -- ==========================================================
 -- RLS POLICIES FOR KYC DOCUMENTS BUCKET
 -- ==========================================================
-
-DROP POLICY IF EXISTS "Users can upload their KYC documents" ON storage.objects;
-DROP POLICY IF EXISTS "Users can view their own KYC documents" ON storage.objects;
-DROP POLICY IF EXISTS "Admins can view all KYC documents" ON storage.objects;
-DROP POLICY IF EXISTS "Admins can delete KYC documents" ON storage.objects;
 
 -- Allow authenticated users to upload to their own folder
 CREATE POLICY "Users can upload their KYC documents"
@@ -73,15 +54,6 @@ USING (
 -- Allow admins to view all KYC documents
 CREATE POLICY "Admins can view all KYC documents"
 ON storage.objects FOR SELECT
-TO authenticated
-USING (
-    bucket_id = 'kyc-documents' AND
-    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
-);
-
--- Allow admins to delete KYC documents
-CREATE POLICY "Admins can delete KYC documents"
-ON storage.objects FOR DELETE
 TO authenticated
 USING (
     bucket_id = 'kyc-documents' AND
@@ -112,23 +84,37 @@ ON public.crypto_addresses FOR SELECT
 TO authenticated
 USING (is_active = true);
 
--- Only admins can manage addresses
-CREATE POLICY "Admins can manage crypto addresses"
-ON public.crypto_addresses FOR ALL
+-- Admins can manage addresses (all operations)
+CREATE POLICY "Admins can insert crypto addresses"
+ON public.crypto_addresses FOR INSERT
+TO authenticated
+WITH CHECK (
+    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
+);
+
+CREATE POLICY "Admins can update crypto addresses"
+ON public.crypto_addresses FOR UPDATE
+TO authenticated
+USING (
+    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
+);
+
+CREATE POLICY "Admins can delete crypto addresses"
+ON public.crypto_addresses FOR DELETE
 TO authenticated
 USING (
     EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
 );
 
 -- ==========================================================
--- NOTIFICATIONS TABLE
+-- NOTIFICATIONS TABLE (FIXED - no admin_id reference)
 -- ==========================================================
 
 CREATE TABLE IF NOT EXISTS public.notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
-    admin_id UUID REFERENCES public.admin_users(id) ON DELETE CASCADE,
-    type TEXT NOT NULL, -- 'deposit', 'withdrawal', 'kyc', 'trade', 'system'
+    is_admin_notification BOOLEAN DEFAULT false,
+    type TEXT NOT NULL,
     title TEXT NOT NULL,
     message TEXT NOT NULL,
     is_read BOOLEAN DEFAULT false,
@@ -142,9 +128,9 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view their notifications"
 ON public.notifications FOR SELECT
 TO authenticated
-USING (user_id = auth.uid());
+USING (user_id = auth.uid() AND is_admin_notification = false);
 
--- Users can mark their notifications as read
+-- Users can update their notifications (mark as read)
 CREATE POLICY "Users can update their notifications"
 ON public.notifications FOR UPDATE
 TO authenticated
@@ -155,24 +141,72 @@ CREATE POLICY "Admins can view admin notifications"
 ON public.notifications FOR SELECT
 TO authenticated
 USING (
-    admin_id IS NOT NULL AND
+    is_admin_notification = true AND
     EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
 );
 
--- Admins can update admin notifications
-CREATE POLICY "Admins can update admin notifications"
-ON public.notifications FOR UPDATE
-TO authenticated
-USING (
-    admin_id IS NOT NULL AND
-    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
-);
-
--- System can insert notifications (via functions)
-CREATE POLICY "System can insert notifications"
+-- System can insert notifications
+CREATE POLICY "Authenticated can insert notifications"
 ON public.notifications FOR INSERT
 TO authenticated
 WITH CHECK (true);
+
+-- ==========================================================
+-- INVESTMENT PLANS RLS POLICIES (FIX FOR ADMIN UPDATES)
+-- ==========================================================
+
+-- Drop existing restrictive policies if any
+DROP POLICY IF EXISTS "Admins can manage investment plans" ON public.investment_plans;
+
+-- Allow all authenticated to view active plans
+CREATE POLICY "Anyone can view active investment plans"
+ON public.investment_plans FOR SELECT
+TO authenticated
+USING (is_active = true);
+
+-- Admins can view ALL plans (including inactive)
+CREATE POLICY "Admins can view all investment plans"
+ON public.investment_plans FOR SELECT
+TO authenticated
+USING (
+    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
+);
+
+-- Admins can INSERT plans
+CREATE POLICY "Admins can insert investment plans"
+ON public.investment_plans FOR INSERT
+TO authenticated
+WITH CHECK (
+    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
+);
+
+-- Admins can UPDATE plans
+CREATE POLICY "Admins can update investment plans"
+ON public.investment_plans FOR UPDATE
+TO authenticated
+USING (
+    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
+);
+
+-- Admins can DELETE plans
+CREATE POLICY "Admins can delete investment plans"
+ON public.investment_plans FOR DELETE
+TO authenticated
+USING (
+    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
+);
+
+-- ==========================================================
+-- INVESTMENTS TABLE RLS (for admin to update current_return)
+-- ==========================================================
+
+-- Admins can update investments (for profit adjustments)
+CREATE POLICY "Admins can update investments"
+ON public.investments FOR UPDATE
+TO authenticated
+USING (
+    EXISTS (SELECT 1 FROM public.admin_users WHERE id = auth.uid())
+);
 
 -- ==========================================================
 -- ADD MISSING COLUMNS TO USERS TABLE
@@ -215,5 +249,3 @@ BEGIN
         ALTER TABLE public.users ADD COLUMN mfi_code TEXT;
     END IF;
 END $$;
-
-COMMIT;

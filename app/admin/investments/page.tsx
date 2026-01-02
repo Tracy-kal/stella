@@ -133,18 +133,29 @@ export default function AdminInvestmentsPage() {
       }
 
       if (editingPlan) {
-        await supabase.from("investment_plans").update(planData).eq("id", editingPlan.id)
+        const { error } = await supabase.from("investment_plans").update(planData).eq("id", editingPlan.id)
+        if (error) {
+          alert(`Update failed: ${error.message}`)
+          console.error("Update error:", error)
+          return
+        }
       } else {
-        await supabase.from("investment_plans").insert({
+        const { error } = await supabase.from("investment_plans").insert({
           ...planData,
           is_active: true,
         })
+        if (error) {
+          alert(`Insert failed: ${error.message}`)
+          console.error("Insert error:", error)
+          return
+        }
       }
 
       setIsDialogOpen(false)
       fetchPlans()
     } catch (error) {
       console.error("Error:", error)
+      alert("An unexpected error occurred")
     } finally {
       setIsSubmitting(false)
     }
@@ -321,10 +332,10 @@ export default function AdminInvestmentsPage() {
                     <TableCell>
                       <span
                         className={`inline-flex px-2 py-1 text-xs font-medium rounded capitalize ${investment.status === "active"
-                            ? "bg-green-500/10 text-green-500"
-                            : investment.status === "completed"
-                              ? "bg-primary/10 text-primary"
-                              : "bg-muted text-muted-foreground"
+                          ? "bg-green-500/10 text-green-500"
+                          : investment.status === "completed"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted text-muted-foreground"
                           }`}
                       >
                         {investment.status}
