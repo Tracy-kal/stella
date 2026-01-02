@@ -19,6 +19,7 @@ import {
   FileText,
   Radio,
   UserCog,
+  Wallet,
 } from "lucide-react"
 import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -36,6 +37,7 @@ export function AdminNav() {
     { href: "/admin/trades", label: "Trades", icon: UserCog },
     { href: "/admin/deposits", label: "Deposits", icon: ArrowDownToLine },
     { href: "/admin/withdrawals", label: "Withdrawals", icon: ArrowUpFromLine },
+    { href: "/admin/crypto-addresses", label: "Crypto Addresses", icon: Wallet },
     { href: "/admin/copy-experts", label: "Copy Experts", icon: Users },
     { href: "/admin/signal-providers", label: "Signal Providers", icon: Radio },
     { href: "/admin/signals", label: "Signals", icon: Radio },

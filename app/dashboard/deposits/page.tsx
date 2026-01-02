@@ -5,10 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Copy, Upload, CheckCircle2, Clock, XCircle, AlertCircle } from "lucide-react"
+import { Copy, Upload, CheckCircle2, Clock, XCircle, AlertCircle, Wallet } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+
+interface CryptoAddress {
+  id: string
+  crypto_symbol: string
+  crypto_name: string
+  wallet_address: string
+  network: string
+  is_active: boolean
+}
 
 interface Transaction {
   id: string
@@ -21,7 +29,8 @@ interface Transaction {
 }
 
 export default function DepositsPage() {
-  const [selectedCrypto, setSelectedCrypto] = useState("BTC")
+  const [cryptoAddresses, setCryptoAddresses] = useState<CryptoAddress[]>([])
+  const [selectedCrypto, setSelectedCrypto] = useState("")
   const [amount, setAmount] = useState("")
   const [transactionHash, setTransactionHash] = useState("")
   const [proofFile, setProofFile] = useState<File | null>(null)
@@ -30,19 +39,29 @@ export default function DepositsPage() {
   const [error, setError] = useState<string | null>(null)
   const [deposits, setDeposits] = useState<Transaction[]>([])
   const [copied, setCopied] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  const cryptoOptions = [
-    { symbol: "BTC", name: "Bitcoin", address: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh", network: "Bitcoin Network" },
-    { symbol: "ETH", name: "Ethereum", address: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", network: "Ethereum (ERC20)" },
-    { symbol: "USDT", name: "Tether", address: "TYASr7W9xxxxxxxxxxxxxxxxxxxxxxxxxx", network: "Tron (TRC20)" },
-    { symbol: "SOL", name: "Solana", address: "7dHbWXmcixxxxxxxxxxxxxxxxxxxxxxxxxx", network: "Solana Network" },
-  ]
-
-  const selectedCryptoData = cryptoOptions.find((c) => c.symbol === selectedCrypto)
+  const selectedCryptoData = cryptoAddresses.find((c) => c.crypto_symbol === selectedCrypto)
 
   useEffect(() => {
+    fetchCryptoAddresses()
     fetchDeposits()
   }, [])
+
+  const fetchCryptoAddresses = async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from("crypto_addresses")
+      .select("*")
+      .eq("is_active", true)
+      .order("crypto_symbol", { ascending: true })
+
+    if (data && data.length > 0) {
+      setCryptoAddresses(data)
+      setSelectedCrypto(data[0].crypto_symbol)
+    }
+    setLoading(false)
+  }
 
   const fetchDeposits = async () => {
     const supabase = createClient()
@@ -62,7 +81,7 @@ export default function DepositsPage() {
 
   const copyToClipboard = () => {
     if (selectedCryptoData) {
-      navigator.clipboard.writeText(selectedCryptoData.address)
+      navigator.clipboard.writeText(selectedCryptoData.wallet_address)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
@@ -108,28 +127,33 @@ export default function DepositsPage() {
 
         if (uploadError) {
           console.error("Upload error:", uploadError)
-          // Continue without proof if upload fails
-        } else {
-          const { data: { publicUrl } } = supabase.storage
-            .from("deposit-proofs")
-            .getPublicUrl(fileName)
-          proofUrl = publicUrl
+          throw new Error("Failed to upload proof. Please try again.")
         }
+
+        const { data: urlData } = supabase.storage.from("deposit-proofs").getPublicUrl(fileName)
+        proofUrl = urlData.publicUrl
       }
 
-      // Create deposit record
+      // Create deposit transaction
       const { error: insertError } = await supabase.from("transactions").insert({
         user_id: user.id,
         type: "deposit",
         status: "pending",
         amount: parseFloat(amount),
         crypto_type: selectedCrypto,
-        wallet_address: selectedCryptoData?.address,
         transaction_hash: transactionHash || null,
-        admin_notes: proofUrl ? `Proof: ${proofUrl}` : null,
+        proof_url: proofUrl,
       })
 
       if (insertError) throw insertError
+
+      // Create notification for user
+      await supabase.from("notifications").insert({
+        user_id: user.id,
+        type: "deposit",
+        title: "Deposit Submitted",
+        message: `Your deposit of $${parseFloat(amount).toFixed(2)} in ${selectedCrypto} has been submitted and is pending verification.`,
+      })
 
       setSuccess(true)
       setAmount("")
@@ -155,6 +179,76 @@ export default function DepositsPage() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background p-4 md:p-8">
+        <div className="mx-auto max-w-4xl">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // No crypto addresses configured
+  if (cryptoAddresses.length === 0) {
+    return (
+      <div className="min-h-screen bg-background p-4 md:p-8">
+        <div className="mx-auto max-w-4xl space-y-6">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Make a Deposit</h1>
+            <p className="mt-1 text-muted-foreground">Fund your account with cryptocurrency</p>
+          </div>
+
+          <Card className="border-yellow-500/50 bg-yellow-500/5">
+            <CardContent className="flex items-start gap-3 p-6">
+              <AlertCircle className="h-6 w-6 flex-shrink-0 text-yellow-500 mt-0.5" />
+              <div>
+                <p className="font-medium text-foreground">Deposits Currently Unavailable</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Deposit addresses have not been configured yet. Please check back later or contact support.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Still show deposit history */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Deposit History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {deposits.length > 0 ? (
+                <div className="space-y-4">
+                  {deposits.map((deposit) => (
+                    <div key={deposit.id} className="flex items-center justify-between border-b border-border pb-4 last:border-0 last:pb-0">
+                      <div className="flex items-center gap-3">
+                        {getStatusIcon(deposit.status)}
+                        <div>
+                          <p className="font-medium text-foreground">{deposit.crypto_type} Deposit</p>
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(deposit.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-medium text-foreground">${deposit.amount.toFixed(2)}</p>
+                        <p className={`text-sm capitalize ${deposit.status === 'approved' ? 'text-green-500' :
+                            deposit.status === 'rejected' ? 'text-destructive' : 'text-yellow-500'
+                          }`}>{deposit.status}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-sm text-muted-foreground py-4">No deposits yet</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
@@ -168,8 +262,8 @@ export default function DepositsPage() {
             <CardContent className="flex items-center gap-3 p-4">
               <CheckCircle2 className="h-5 w-5 text-green-500" />
               <div>
-                <p className="font-medium text-foreground">Deposit Submitted Successfully!</p>
-                <p className="text-sm text-muted-foreground">Your deposit is pending admin approval.</p>
+                <p className="font-medium text-foreground">Deposit Submitted!</p>
+                <p className="text-sm text-muted-foreground">Your deposit is pending verification. Processing time: 24-48 hours.</p>
               </div>
             </CardContent>
           </Card>
@@ -187,8 +281,11 @@ export default function DepositsPage() {
         <form onSubmit={handleSubmit}>
           <Card>
             <CardHeader>
-              <CardTitle>Deposit Information</CardTitle>
-              <CardDescription>Select cryptocurrency and enter deposit details</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-primary" />
+                Deposit Details
+              </CardTitle>
+              <CardDescription>Select cryptocurrency and send funds to the address below</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-6 md:grid-cols-2">
@@ -199,9 +296,9 @@ export default function DepositsPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {cryptoOptions.map((crypto) => (
-                        <SelectItem key={crypto.symbol} value={crypto.symbol}>
-                          {crypto.name} ({crypto.symbol})
+                      {cryptoAddresses.map((crypto) => (
+                        <SelectItem key={crypto.id} value={crypto.crypto_symbol}>
+                          {crypto.crypto_name} ({crypto.crypto_symbol})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -222,84 +319,70 @@ export default function DepositsPage() {
                 </div>
               </div>
 
-              {selectedCryptoData && (
-                <div className="space-y-4 border-t border-border pt-6">
-                  <div className="flex items-center justify-center">
-                    <div className="h-48 w-48 bg-white p-2 rounded-lg flex items-center justify-center">
-                      <div className="text-center text-muted-foreground text-sm">
-                        <p className="font-bold text-lg text-foreground">{selectedCryptoData.symbol}</p>
-                        <p>QR Code</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Network</Label>
-                    <Input value={selectedCryptoData.network} readOnly className="bg-muted" />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Wallet Address</Label>
-                    <div className="flex gap-2">
-                      <Input value={selectedCryptoData.address} readOnly className="font-mono text-sm bg-muted" />
-                      <Button type="button" size="icon" variant="outline" onClick={copyToClipboard}>
-                        {copied ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 bg-yellow-500/5 border border-yellow-500/20 p-4 rounded-lg">
-                    <p className="text-sm font-medium text-foreground">⚠️ Important Instructions:</p>
-                    <ul className="space-y-1 text-sm text-muted-foreground">
-                      <li>• Send only <strong>{selectedCryptoData.symbol}</strong> to this address</li>
-                      <li>• Network: <strong>{selectedCryptoData.network}</strong></li>
-                      <li>• Minimum deposit: <strong>$100</strong></li>
-                      <li>• Deposits are usually confirmed within 10-30 minutes</li>
-                    </ul>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-4 border-t border-border pt-6">
-                <h3 className="font-semibold text-foreground">Payment Confirmation</h3>
-
-                <div className="space-y-2">
-                  <Label htmlFor="txHash">Transaction Hash (Optional)</Label>
+              {/* Wallet Address Display */}
+              <div className="space-y-2">
+                <Label>Deposit Address ({selectedCryptoData?.network})</Label>
+                <div className="flex gap-2">
                   <Input
-                    id="txHash"
-                    placeholder="Enter your transaction hash"
-                    value={transactionHash}
-                    onChange={(e) => setTransactionHash(e.target.value)}
-                    className="font-mono"
+                    value={selectedCryptoData?.wallet_address || ""}
+                    readOnly
+                    className="font-mono text-sm"
                   />
+                  <Button type="button" variant="outline" onClick={copyToClipboard}>
+                    {copied ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                  </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Send only {selectedCryptoData?.crypto_symbol} to this address. Sending other coins may result in permanent loss.
+                </p>
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="proof">Upload Payment Proof (Optional)</Label>
-                  <div className="flex items-center gap-4">
-                    <label
-                      htmlFor="proof"
-                      className="flex-1 cursor-pointer border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary transition-colors"
-                    >
-                      <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {proofFile ? proofFile.name : "Click to upload screenshot or receipt"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">PNG, JPG, PDF up to 5MB</p>
-                      <input
-                        id="proof"
-                        type="file"
-                        accept="image/*,.pdf"
-                        onChange={handleFileChange}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                </div>
+              {/* Transaction Hash */}
+              <div className="space-y-2">
+                <Label htmlFor="hash">Transaction Hash (Optional)</Label>
+                <Input
+                  id="hash"
+                  placeholder="Enter transaction hash for faster verification"
+                  value={transactionHash}
+                  onChange={(e) => setTransactionHash(e.target.value)}
+                  className="font-mono"
+                />
+              </div>
+
+              {/* Proof Upload */}
+              <div className="space-y-2">
+                <Label htmlFor="proof">Payment Proof (Optional)</Label>
+                <label
+                  htmlFor="proof"
+                  className="flex cursor-pointer flex-col items-center justify-center border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary transition-colors"
+                >
+                  <Upload className="h-8 w-8 text-muted-foreground" />
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {proofFile ? proofFile.name : "Click to upload screenshot of payment"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">PNG, JPG up to 5MB</p>
+                  <input
+                    id="proof"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              <div className="bg-muted/50 p-4 rounded-lg">
+                <p className="text-sm font-medium text-foreground">Important:</p>
+                <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                  <li>• Minimum deposit: <strong>$100</strong></li>
+                  <li>• Verification time: <strong>24-48 hours</strong></li>
+                  <li>• Upload proof for faster processing</li>
+                  <li>• Double-check the network before sending</li>
+                </ul>
               </div>
 
               <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
-                {isSubmitting ? "Submitting..." : "Submit Deposit"}
+                {isSubmitting ? "Processing..." : "Submit Deposit"}
               </Button>
             </CardContent>
           </Card>
@@ -308,7 +391,7 @@ export default function DepositsPage() {
         {/* Deposit History */}
         <Card>
           <CardHeader>
-            <CardTitle>Recent Deposits</CardTitle>
+            <CardTitle>Deposit History</CardTitle>
           </CardHeader>
           <CardContent>
             {deposits.length > 0 ? (
