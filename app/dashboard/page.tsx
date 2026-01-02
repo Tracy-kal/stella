@@ -137,7 +137,7 @@ export default async function DashboardPage() {
         </div>
 
         {/* TradingView Charts Section */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid  lg:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

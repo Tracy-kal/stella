@@ -36,6 +36,8 @@ export function AdminNav() {
     { href: "/admin/trades", label: "Trades", icon: UserCog },
     { href: "/admin/deposits", label: "Deposits", icon: ArrowDownToLine },
     { href: "/admin/withdrawals", label: "Withdrawals", icon: ArrowUpFromLine },
+    { href: "/admin/copy-experts", label: "Copy Experts", icon: Users },
+    { href: "/admin/signal-providers", label: "Signal Providers", icon: Radio },
     { href: "/admin/signals", label: "Signals", icon: Radio },
     { href: "/admin/kyc", label: "KYC", icon: Shield },
     { href: "/admin/support", label: "Support", icon: MessageSquare },
